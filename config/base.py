@@ -106,11 +106,26 @@ def get_config():
         "jpeg_compressibility",
     ]
 
+    ###### MORL ######
+    # population size for the multi-objective reinforcement learning algorithm.
+    config.pop_size = 2
+    # PGMORL hyperparameters
+    config.warmup_iterations = 50
+    config.steps_per_iteration = 2048
+    config.evolutionary_iterations  = 20
+    config.num_weight_candidates  = 7
+    config.num_performance_buffer  = 100
+    config.performance_buffer_size  = 2
+    config.min_weight = 0.0
+    config.max_weight = 1.0
+    config.delta_weight = 0.2
+
     ###### Per-Prompt Stat Tracking ######
     # when enabled, the model will track the mean and std of reward on a per-prompt basis and use that to compute
     # advantages. set `config.per_prompt_stat_tracking` to None to disable per-prompt stat tracking, in which case
     # advantages will be calculated using the mean and std of the entire batch.
-    config.per_prompt_stat_tracking = ml_collections.ConfigDict()
+    #config.per_prompt_stat_tracking = ml_collections.ConfigDict()
+    config.per_prompt_stat_tracking = None    
     # number of reward values to store in the buffer for each prompt. the buffer persists across epochs.
     config.per_prompt_stat_tracking.buffer_size = 16
     # the minimum number of reward values to store in the buffer before using the per-prompt mean and std. if the buffer

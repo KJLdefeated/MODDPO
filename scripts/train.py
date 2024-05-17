@@ -435,16 +435,16 @@ def main(_):
             prompts = pipeline.tokenizer.batch_decode(
                 prompt_ids, skip_special_tokens=True
             )
-            advantages = stat_tracker.update(prompts, rewards)
+            advantages = [stat_tracker.update(prompts, reward) for reward in rewards]
         else:
-            advantages = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
+            advantages = [(rewards[i] - rewards[i].mean()) / (rewards[i].std() + 1e-8) for i in range(len(rewards))]
 
         # ungather advantages; we only need to keep the entries corresponding to the samples on this process
-        samples["advantages"] = (
-            torch.as_tensor(advantages)
+        samples["advantages"] = [(
+            torch.as_tensor(advantage)
             .reshape(accelerator.num_processes, -1)[accelerator.process_index]
             .to(accelerator.device)
-        )
+        ) for advantage in advantages]
 
         del samples["rewards"]
         del samples["prompt_ids"]
