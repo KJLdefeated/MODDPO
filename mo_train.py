@@ -9,21 +9,12 @@ from ml_collections import config_flags
 from accelerate import Accelerator
 from accelerate.utils import set_seed, ProjectConfiguration
 from accelerate.logging import get_logger
-from diffusers import StableDiffusionPipeline, DDIMScheduler, UNet2DConditionModel
-from diffusers.models.attention_processor import LoRAAttnProcessor
 import numpy as np
-import ddpo_pytorch.prompts
-import ddpo_pytorch.rewards
-from ddpo_pytorch.stat_tracking import PerPromptStatTracker
-from ddpo_pytorch.diffusers_patch.pipeline_with_logprob import pipeline_with_logprob
-from ddpo_pytorch.diffusers_patch.ddim_with_logprob import ddim_step_with_logprob
-import torch
-import wandb
 from functools import partial
 import tqdm
-import tempfile
 from copy import deepcopy
-from PIL import Image
+import ddpo.prompts
+import ddpo.rewards
 from ddpo.ddpo_agent import DDPOAgent
 from morl_utils.pgmorl import PerformanceBuffer, PerformancePredictor, ParetoArchive, generate_weights, hypervolume, sparsity
 
@@ -104,8 +95,8 @@ def main(_):
     agents = [DDPOAgent(id=i, config=config, weights=weights[i], accelerator=accelerator) for i in range(config.pop_size)]
 
     # prepare prompt and reward fn
-    prompt_fn = getattr(ddpo_pytorch.prompts, config.prompt_fn)
-    reward_fns = [getattr(ddpo_pytorch.rewards, fn)() for fn in config.reward_fns]
+    prompt_fn = getattr(ddpo.prompts, config.prompt_fn)
+    reward_fns = [getattr(ddpo.rewards, fn)() for fn in config.reward_fns]
 
     # executor to perform callbacks asynchronously. this is beneficial for the llava callbacks which makes a request to a
     # remote server running llava inference.

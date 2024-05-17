@@ -127,9 +127,9 @@ def get_config():
     #config.per_prompt_stat_tracking = ml_collections.ConfigDict()
     config.per_prompt_stat_tracking = None    
     # number of reward values to store in the buffer for each prompt. the buffer persists across epochs.
-    config.per_prompt_stat_tracking.buffer_size = 16
+    # config.per_prompt_stat_tracking.buffer_size = 16
     # the minimum number of reward values to store in the buffer before using the per-prompt mean and std. if the buffer
     # contains fewer than `min_count` values, the mean and std of the entire batch will be used instead.
-    config.per_prompt_stat_tracking.min_count = 16
+    # config.per_prompt_stat_tracking.min_count = 16
 
     return config

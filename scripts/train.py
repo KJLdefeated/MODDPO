@@ -13,11 +13,11 @@ from diffusers import StableDiffusionPipeline, DDIMScheduler, UNet2DConditionMod
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.attention_processor import LoRAAttnProcessor
 import numpy as np
-import ddpo_pytorch.prompts
-import ddpo_pytorch.rewards
-from ddpo_pytorch.stat_tracking import PerPromptStatTracker
-from ddpo_pytorch.diffusers_patch.pipeline_with_logprob import pipeline_with_logprob
-from ddpo_pytorch.diffusers_patch.ddim_with_logprob import ddim_step_with_logprob
+import ddpo.prompts
+import ddpo.rewards
+from ddpo.stat_tracking import PerPromptStatTracker
+from ddpo.diffusers_patch.pipeline_with_logprob import pipeline_with_logprob
+from ddpo.diffusers_patch.ddim_with_logprob import ddim_step_with_logprob
 import torch
 import wandb
 from functools import partial
@@ -227,7 +227,6 @@ def main(_):
 
     # prepare prompt and reward fn
     prompt_fn = getattr(ddpo_pytorch.prompts, config.prompt_fn)
-    reward_fns = [getattr(ddpo_pytorch.rewards, fn)() for fn in config.reward_fns]
     reward_fn = getattr(ddpo_pytorch.rewards, config.reward_fn)()
 
     # generate negative prompt embeddings
@@ -353,8 +352,7 @@ def main(_):
             )  # (batch_size, num_steps)
 
             # compute rewards asynchronously
-            #rewards = executor.submit(reward_fn, images, prompts, prompt_metadata)
-            m_rewards = [executor.submit(r, images, prompts, prompt_metadata) for r in reward_fns]
+            rewards = executor.submit(reward_fn, images, prompts, prompt_metadata)
             # yield to to make sure reward computation starts
             time.sleep(0)
 
@@ -370,7 +368,7 @@ def main(_):
                         :, 1:
                     ],  # each entry is the latent after timestep t
                     "log_probs": log_probs,
-                    "rewards": m_rewards,
+                    "rewards": rewards,
                 }
             )
 
@@ -383,7 +381,7 @@ def main(_):
         ):
             rewards, reward_metadata = sample["rewards"].result()
             # accelerator.print(reward_metadata)
-            sample["rewards"] = [torch.as_tensor(rewards[i], device=accelerator.device) for i in range(len(rewards))]
+            sample["rewards"] = torch.as_tensor(rewards, device=accelerator.device)
 
         # collate samples into dict where each entry has shape (num_batches_per_epoch * sample.batch_size, ...)
         samples = {k: torch.cat([s[k] for s in samples]) for k in samples[0].keys()}
@@ -401,10 +399,10 @@ def main(_):
                     "images": [
                         wandb.Image(
                             os.path.join(tmpdir, f"{i}.jpg"),
-                            caption=f"{prompt:.25} | {reward[0]:.2f} | {reward[1]:.2f}",
+                            caption=f"{prompt:.25} | {reward:.2f}",
                         )
                         for i, (prompt, reward) in enumerate(
-                            zip(prompts, m_rewards)
+                            zip(prompts, rewards)
                         )  # only log rewards from process 0
                     ],
                 },
@@ -412,18 +410,15 @@ def main(_):
             )
 
         # gather rewards across processes
-        rewards = [accelerator.gather(samples["rewards"][i]).cpu().numpy() for i in range(len(samples["rewards"]))]
+        rewards = accelerator.gather(samples["rewards"]).cpu().numpy()
 
         # log rewards and images
         accelerator.log(
             {
-                "reward1": rewards[0],
-                "reward2": rewards[1],
+                "reward": rewards,
                 "epoch": epoch,
-                "reward1_mean": rewards[0].mean(),
-                "reward1_std": rewards[0].std(),
-                "reward2_mean": rewards[1].mean(),
-                "reward2_std": rewards[1].std(),
+                "reward_mean": rewards.mean(),
+                "reward_std": rewards.std(),
             },
             step=global_step,
         )
@@ -435,16 +430,16 @@ def main(_):
             prompts = pipeline.tokenizer.batch_decode(
                 prompt_ids, skip_special_tokens=True
             )
-            advantages = [stat_tracker.update(prompts, reward) for reward in rewards]
+            advantages = stat_tracker.update(prompts, rewards)
         else:
-            advantages = [(rewards[i] - rewards[i].mean()) / (rewards[i].std() + 1e-8) for i in range(len(rewards))]
+            advantages = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
 
         # ungather advantages; we only need to keep the entries corresponding to the samples on this process
-        samples["advantages"] = [(
-            torch.as_tensor(advantage)
+        samples["advantages"] = (
+            torch.as_tensor(advantages)
             .reshape(accelerator.num_processes, -1)[accelerator.process_index]
             .to(accelerator.device)
-        ) for advantage in advantages]
+        )
 
         del samples["rewards"]
         del samples["prompt_ids"]

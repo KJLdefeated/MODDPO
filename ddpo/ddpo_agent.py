@@ -13,11 +13,11 @@ from diffusers import StableDiffusionPipeline, DDIMScheduler, UNet2DConditionMod
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.attention_processor import LoRAAttnProcessor
 import numpy as np
-import ddpo_pytorch.prompts
-import ddpo_pytorch.rewards
-from ddpo_pytorch.stat_tracking import PerPromptStatTracker
-from ddpo_pytorch.diffusers_patch.pipeline_with_logprob import pipeline_with_logprob
-from ddpo_pytorch.diffusers_patch.ddim_with_logprob import ddim_step_with_logprob
+import ddpo.prompts
+import ddpo.rewards
+from ddpo.stat_tracking import PerPromptStatTracker
+from ddpo.diffusers_patch.pipeline_with_logprob import pipeline_with_logprob
+from ddpo.diffusers_patch.ddim_with_logprob import ddim_step_with_logprob
 import torch
 import wandb
 from functools import partial

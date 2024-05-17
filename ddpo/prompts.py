@@ -5,7 +5,7 @@ import random
 import inflect
 
 IE = inflect.engine()
-ASSETS_PATH = resources.files("ddpo_pytorch.assets")
+ASSETS_PATH = resources.files("ddpo.assets")
 
 
 @functools.cache
