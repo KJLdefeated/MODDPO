@@ -5,6 +5,7 @@ import datetime
 from concurrent import futures
 import time
 from absl import app, flags
+from copy import deepcopy
 from ml_collections import config_flags
 from accelerate import Accelerator
 from accelerate.utils import set_seed, ProjectConfiguration
@@ -21,15 +22,16 @@ from ddpo.diffusers_patch.ddim_with_logprob import ddim_step_with_logprob
 import torch
 import wandb
 from functools import partial
-import tqdm
+from tqdm import tqdm
 import tempfile
 from PIL import Image
 
 class DDPOAgent:
-    def __init__(self, id, weights: np.ndarray,config, accelerator: Accelerator) -> None:
+    def __init__(self, pop_size, weights: np.ndarray,config, accelerator: Accelerator) -> None:
         # set policy id and weights of objectives
-        self.id = id
+        self.pop_size = pop_size
         self.weights = weights
+        assert weights.shape[0] == pop_size
         # load scheduler, tokenizer and models.
         self.config = config
         self.accelerator = accelerator
@@ -92,16 +94,12 @@ class DDPOAgent:
                 )
             self.pipeline.unet.set_attn_processor(lora_attn_procs)
 
-            # this is a hack to synchronize gradients properly. the module that registers the parameters we care about (in
-            # this case, AttnProcsLayers) needs to also be used for the forward pass. AttnProcsLayers doesn't have a
-            # `forward` method, so we wrap it to add one and capture the rest of the unet parameters using a closure.
-            class _Wrapper(AttnProcsLayers):
-                def forward(self, *args, **kwargs):
-                    return self.pipeline.unet(*args, **kwargs)
-
-            self.unet = _Wrapper(self.pipeline.unet.attn_processors)
+            unet = self.wrap_unet(self.pipeline.unet.attn_processors)
         else:
-            self.unet = self.pipeline.unet
+            unet = self.pipeline.unet
+
+        # Copy pop_size unet as populations
+        self.unets = [deepcopy(unet) for _ in range(pop_size)]
 
         # set up diffusers-friendly checkpoint saving with Accelerate
         def save_model_hook(models, weights, output_dir):
@@ -142,13 +140,13 @@ class DDPOAgent:
         self.accelerator.register_save_state_pre_hook(save_model_hook)
         self.accelerator.register_load_state_pre_hook(load_model_hook)
 
-        self.optimizer = torch.optim.AdamW(
-            self.unet.parameters(),
+        self.optimizers = [torch.optim.AdamW(
+            self.unets[i].parameters(),
             lr=config.train.learning_rate,
             betas=(config.train.adam_beta1, config.train.adam_beta2),
             weight_decay=config.train.adam_weight_decay,
             eps=config.train.adam_epsilon,
-        )
+        ) for i in range(self.pop_size)]
 
         # generate negative prompt embeddings
         self.neg_prompt_embed = self.pipeline.text_encoder(
@@ -169,11 +167,30 @@ class DDPOAgent:
         # autocast = accelerator.autocast
 
         # Prepare everything with our `accelerator`.
-        self.unet, self.optimizer = self.accelerator.prepare(self.unet, self.optimizer)
+        for i in range(self.pop_size):
+            self.unets[i], self.optimizers[i] = self.accelerator.prepare(self.unets[i], self.optimizers[i])
 
-        self.global_step = 0
+        self.global_steps = [0 for _ in range(self.pop_size)]
 
-    def sampling(self, prompt_fn, reward_fns, executor, epoch):
+    def wrap_unet(self, unet_attn_procs):
+        # this is a hack to synchronize gradients properly. the module that registers the parameters we care about (in
+        # this case, AttnProcsLayers) needs to also be used for the forward pass. AttnProcsLayers doesn't have a
+        # `forward` method, so we wrap it to add one and capture the rest of the unet parameters using a closure.
+        pipeline = self.pipeline
+        class _Wrapper(AttnProcsLayers):
+            def forward(self, *args, **kwargs):
+                return pipeline.unet(*args, **kwargs)
+        return _Wrapper(unet_attn_procs)
+
+    def unwrap_for_copy(self):
+        unwarpped_model = self.accelerator.unwrap_model(self.pipeline.unet)
+        return unwarpped_model.attn_processors
+
+    def sampling(self, id, prompt_fn, reward_fns, executor, epoch):
+        lora_attn_procs = {}
+        for lora_id, lora_name in self.unets[id].mapping.items():
+            lora_attn_procs[lora_name] = self.unets[id].layers[lora_id]
+        self.pipeline.unet.set_attn_processor(lora_attn_procs)
         self.pipeline.unet.eval()
         self.samples = []
         self.prompts = []
@@ -224,7 +241,6 @@ class DDPOAgent:
             # compute rewards asynchronously
             #rewards = executor.submit(reward_fn, images, prompts, prompt_metadata)
             m_rewards = [executor.submit(r, images, prompts, prompt_metadata) for r in reward_fns]
-            scalar_rewards = self.weights @ np.array([r.result() for r in m_rewards])
             # yield to to make sure reward computation starts
             time.sleep(0)
 
@@ -245,17 +261,22 @@ class DDPOAgent:
             )
 
         # wait for all rewards to be computed
+        m_rewards = []
         for sample in tqdm(
             self.samples,
             desc="Waiting for rewards",
             disable=not self.accelerator.is_local_main_process,
             position=0,
         ):
-            rewards, reward_metadata = sample["rewards"].result()
-            # accelerator.print(reward_metadata)
-            sample["scaled_rewards"] = torch.as_tensor(self.weights @ np.array(rewards), device=self.accelerator.device)
-            sample["rewards"] = [torch.as_tensor(rewards[i], device=self.accelerator.device) for i in range(len(rewards))]
-
+            rewards = [r.result()[0].cpu().numpy() if isinstance(r.result()[0], torch.Tensor) else r.result()[0] for r in sample["rewards"]]
+            rewards = np.stack(rewards, axis=1)
+            m_rewards.append(rewards)
+            sample["scaled_rewards"] = torch.as_tensor(self.weights @ np.array(rewards).T, device=self.accelerator.device)
+            sample["rewards"] = torch.as_tensor(rewards, device=self.accelerator.device)
+        
+        m_rewards = np.stack(m_rewards, axis=1)
+        mean_rewards = np.mean(np.mean(m_rewards, axis=0), axis=0)
+        
         # collate samples into dict where each entry has shape (num_batches_per_epoch * sample.batch_size, ...)
         self.samples = {k: torch.cat([s[k] for s in self.samples]) for k in self.samples[0].keys()}
 
@@ -269,17 +290,18 @@ class DDPOAgent:
                 pil.save(os.path.join(tmpdir, f"{i}.jpg"))
             self.accelerator.log(
                 {
+                    "Model ID": id,
                     "images": [
                         wandb.Image(
                             os.path.join(tmpdir, f"{i}.jpg"),
                             caption=f"{prompt:.25} | {reward[0]:.2f} | {reward[1]:.2f}",
                         )
                         for i, (prompt, reward) in enumerate(
-                            zip(prompts, m_rewards)
+                            zip(prompts, m_rewards.reshape(-1, len(reward_fns)))
                         )  # only log rewards from process 0
                     ],
                 },
-                step=self.global_step,
+                step=self.global_steps[id],
             )
             
         # gather scalar rewards across processes
@@ -288,15 +310,14 @@ class DDPOAgent:
         # log rewards and images
         self.accelerator.log(
             {
+                "Model ID": id,
                 "weighted reward": rewards,
                 "epoch": epoch,
                 "weighted reward_mean": rewards.mean(),
                 "weighted reward_std": rewards.std(),
             },
-            step=self.global_step,
+            step=self.global_steps[id],
         )
-
-        mean_rewards = rewards.mean()
 
         # per-prompt mean/std tracking
         if self.config.per_prompt_stat_tracking:
@@ -321,7 +342,7 @@ class DDPOAgent:
 
         return mean_rewards
 
-    def training(self, epoch):
+    def training(self, id, epoch):
         total_batch_size, num_timesteps = self.samples["timesteps"].shape
         assert (
             total_batch_size
@@ -331,7 +352,7 @@ class DDPOAgent:
         for inner_epoch in range(self.config.train.num_inner_epochs):
             # shuffle samples along batch dimension
             perm = torch.randperm(total_batch_size, device=self.accelerator.device)
-            samples = {k: v[perm] for k, v in samples.items()}
+            samples = {k: v[perm] for k, v in self.samples.items()}
 
             # shuffle along time dimension independently for each sample
             perms = torch.stack(
@@ -382,10 +403,10 @@ class DDPOAgent:
                     leave=False,
                     disable=not self.accelerator.is_local_main_process,
                 ):
-                    with self.accelerator.accumulate(self.unet):
+                    with self.accelerator.accumulate(self.unets[id]):
                         with self.autocast():
                             if self.config.train.cfg:
-                                noise_pred = self.unet(
+                                noise_pred = self.unets[id](
                                     torch.cat([sample["latents"][:, j]] * 2),
                                     torch.cat([sample["timesteps"][:, j]] * 2),
                                     embeds,
@@ -397,7 +418,7 @@ class DDPOAgent:
                                     * (noise_pred_text - noise_pred_uncond)
                                 )
                             else:
-                                noise_pred = self.unet(
+                                noise_pred = self.unets[id](
                                     sample["latents"][:, j],
                                     sample["timesteps"][:, j],
                                     embeds,
@@ -448,10 +469,10 @@ class DDPOAgent:
                         self.accelerator.backward(loss)
                         if self.accelerator.sync_gradients:
                             self.accelerator.clip_grad_norm_(
-                                self.unet.parameters(), self.config.train.max_grad_norm
+                                self.unets[id].parameters(), self.config.train.max_grad_norm
                             )
-                        self.optimizer.step()
-                        self.optimizer.zero_grad()
+                        self.optimizers[id].step()
+                        self.optimizers[id].zero_grad()
 
                     # Checks if the accelerator has performed an optimization step behind the scenes
                     if self.accelerator.sync_gradients:
@@ -462,8 +483,8 @@ class DDPOAgent:
                         info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
                         info = self.accelerator.reduce(info, reduction="mean")
                         info.update({"epoch": epoch, "inner_epoch": inner_epoch})
-                        self.accelerator.log(info, step=global_step)
-                        global_step += 1
+                        self.accelerator.log(info, step=self.global_steps[id])
+                        self.global_steps[id] += 1
                         info = defaultdict(list)
 
             # make sure we did an optimization step at the end of the inner epoch

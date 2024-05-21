@@ -20,6 +20,8 @@ from morl_utils.pgmorl import PerformanceBuffer, PerformancePredictor, ParetoArc
 
 tqdm = partial(tqdm.tqdm, dynamic_ncols=True)
 
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file("config", "config/base.py", "Training configuration.")
@@ -92,7 +94,7 @@ def main(_):
     weights = generate_weights(config.delta_weight)
 
     # setup the models
-    agents = [DDPOAgent(id=i, config=config, weights=weights[i], accelerator=accelerator) for i in range(config.pop_size)]
+    agents = DDPOAgent(pop_size=config.pop_size, config=config, weights=weights, accelerator=accelerator)
 
     # prepare prompt and reward fn
     prompt_fn = getattr(ddpo.prompts, config.prompt_fn)
@@ -148,18 +150,20 @@ def main(_):
     for epoch in range(first_epoch, config.num_epochs):
         if epoch < config.warmup_iterations:
             logger.info(f"Running warmup iteration {epoch}")
-            for agent in agents:
-                logger.info(f"Traning for agent {agent.id}")
-                reward = agent.sampling(prompt_fn, reward_fns, executor, epoch)
+            for agent_id in range(config.pop_size):
+                logger.info(f"Traning for agent {agent_id}")
+                reward = agents.sampling(agent_id, prompt_fn, reward_fns, executor, epoch)
                 
                 if epoch == config.warmup_iterations - 1:
                     # Storing results for last warmup iteration
-                    population.add(agent, reward)
-                    pareto_archive.add(agent, reward)
-                    predictor.add(agent.weights, current_evaluations[agent.id], reward)
-                    current_evaluations[agent.id] = reward
+                    # Only need to pass unet to the population and pareto archive
+                    unet = agents.unwrap_for_copy()
+                    population.add(unet, reward)
+                    pareto_archive.add(unet, reward)
+                    predictor.add(agents.weights[agent_id], current_evaluations[agent_id], reward)
+                    current_evaluations[agent_id] = reward
                 
-                agent.training(epoch)
+                agents.training(agent_id, epoch)
         else:
             logger.info(f"Running evolutionary iteration {epoch - config.warmup_iterations}")
             # Every evolutionary iterations, change the task - weight assignments
@@ -172,7 +176,7 @@ def main(_):
             population_eval = population.evaluations
             selected_tasks = []
             # For each worker, select a (policy, weight) tuple
-            for i in range(len(agents)):
+            for i in range(config.pop_size):
                 max_improv = float("-inf")
                 best_candidate = None
                 best_eval = None
@@ -222,29 +226,28 @@ def main(_):
 
                 # Assigns best predicted (weight-agent) pair to the worker
                 copied_agent = deepcopy(best_candidate[0])
-                copied_agent.global_step = agents[i].global_step
-                copied_agent.id = i
-                copied_agent.weights = best_candidate[1]
-                agents[i] = copied_agent
+                agents.unets[i] = agents.wrap_unet(copied_agent)
+                agents.weights[i] = best_candidate[1]
 
-                print(f"Agent #{agents[i].id} - weights {best_candidate[1]}")
+                print(f"Agent #{i} - weights {best_candidate[1]}")
                 print(f"current eval: {best_eval} - estimated next: {best_predicted_eval} - deltas {(best_predicted_eval - best_eval)}")
 
             print(f"Evolutionary generation #{evolutionary_generation}")
             for _ in range(config.evolutionary_iterations):
-                for agent in agents:
-                    logger.info(f"Traning for agent {agent.id}")
-                    reward = agent.sampling(prompt_fn, reward_fns, executor, epoch)
-                    population.add(agent, reward)
-                    pareto_archive.add(agent, reward)
-                    predictor.add(agent.weights, current_evaluations[agent.id], reward)
-                    current_evaluations[agent.id] = reward
-                    agent.training(epoch)
+                for agent_id in range(config.pop_size):
+                    logger.info(f"Traning for agent {agent_id}")
+                    reward = agents.sampling(agent_id, prompt_fn, reward_fns, executor, epoch)
+                    unet = agents.unwrap_for_copy()
+                    population.add(unet, reward)
+                    pareto_archive.add(unet, reward)
+                    predictor.add(agents.weights[agent_id], current_evaluations[agent_id], reward)
+                    current_evaluations[agent_id] = reward
+                    agents.training(agent_id, epoch)
+                epoch += 1
+                # Save checkpoint
+                if epoch != 0 and epoch % config.save_freq == 0 and accelerator.is_main_process:
+                    accelerator.save_state()
             evolutionary_generation += 1
-
-            # Save checkpoint
-            if epoch != 0 and epoch % config.save_freq == 0 and accelerator.is_main_process:
-                accelerator.save_state()
         
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import numpy as np
 from transformers import CLIPModel, CLIPProcessor
 from PIL import Image
 
-ASSETS_PATH = resources.files("ddpo_pytorch.assets")
+ASSETS_PATH = resources.files("ddpo.assets")
 
 
 class MLP(nn.Module):

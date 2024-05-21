@@ -15,7 +15,7 @@ def get_config():
     # samples.
     config.num_epochs = 500
     # number of epochs between saving model checkpoints.
-    config.save_freq = 20
+    config.save_freq = 10
     # number of checkpoints to keep before overwriting old ones.
     config.num_checkpoint_limit = 5
     # mixed precision training. options are "fp16", "bf16", and "no". half-precision speeds up training significantly.
@@ -42,7 +42,7 @@ def get_config():
     ###### Sampling ######
     config.sample = sample = ml_collections.ConfigDict()
     # number of sampler inference steps.
-    sample.num_steps = 50
+    sample.num_steps = 30
     # eta parameter for the DDIM sampler. this controls the amount of noise injected into the sampling process, with 0.0
     # being fully deterministic and 1.0 being equivalent to the DDPM sampler.
     sample.eta = 1.0
@@ -103,16 +103,15 @@ def get_config():
     # Two objective funtions
     config.reward_fns = [
         "aesthetic_score",
-        "jpeg_compressibility",
+        "jpeg_incompressibility",
     ]
 
     ###### MORL ######
     # population size for the multi-objective reinforcement learning algorithm.
-    config.pop_size = 2
+    config.pop_size = 6
     # PGMORL hyperparameters
-    config.warmup_iterations = 50
-    config.steps_per_iteration = 2048
-    config.evolutionary_iterations  = 20
+    config.warmup_iterations = 10
+    config.evolutionary_iterations  = 4
     config.num_weight_candidates  = 7
     config.num_performance_buffer  = 100
     config.performance_buffer_size  = 2
