@@ -13,15 +13,18 @@ import numpy as np
 from functools import partial
 import tqdm
 from copy import deepcopy
+
+import wandb.plot
 import ddpo.prompts
 import ddpo.rewards
 from ddpo.ddpo_agent import DDPOAgent
 from morl_utils.pgmorl import PerformanceBuffer, PerformancePredictor, ParetoArchive, generate_weights, hypervolume, sparsity
+import wandb
 
 tqdm = partial(tqdm.tqdm, dynamic_ncols=True)
 
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file("config", "config/base.py", "Training configuration.")
@@ -57,12 +60,13 @@ def main(_):
 
     accelerator_config = ProjectConfiguration(
         project_dir=os.path.join(config.logdir, config.run_name),
+        logging_dir=os.path.join(config.logdir, config.run_name, "logs"),
         automatic_checkpoint_naming=True,
         total_limit=config.num_checkpoint_limit,
     )
 
     accelerator = Accelerator(
-        log_with="wandb",
+        log_with=config.log_type,
         mixed_precision=config.mixed_precision,
         project_config=accelerator_config,
         # we always accumulate gradients across timesteps; we want config.train.gradient_accumulation_steps to be the
@@ -75,7 +79,7 @@ def main(_):
         accelerator.init_trackers(
             project_name="ddpo-pytorch",
             config=config.to_dict(),
-            init_kwargs={"wandb": {"name": config.run_name}},
+            init_kwargs={config.log_type: {"name": config.run_name}},
         )
     logger.info(f"\n{config}")
 
@@ -229,10 +233,10 @@ def main(_):
                 agents.unets[i] = agents.wrap_unet(copied_agent)
                 agents.weights[i] = best_candidate[1]
 
-                print(f"Agent #{i} - weights {best_candidate[1]}")
-                print(f"current eval: {best_eval} - estimated next: {best_predicted_eval} - deltas {(best_predicted_eval - best_eval)}")
+                logger.info(f"Agent #{i} - weights {best_candidate[1]}")
+                logger.info(f"current eval: {best_eval} - estimated next: {best_predicted_eval} - deltas {(best_predicted_eval - best_eval)}")
 
-            print(f"Evolutionary generation #{evolutionary_generation}")
+            logger.info(f"Evolutionary generation #{evolutionary_generation}")
             for _ in range(config.evolutionary_iterations):
                 for agent_id in range(config.pop_size):
                     logger.info(f"Traning for agent {agent_id}")
@@ -244,9 +248,16 @@ def main(_):
                     current_evaluations[agent_id] = reward
                     agents.training(agent_id, epoch)
                 epoch += 1
-                # Save checkpoint
-                if epoch != 0 and epoch % config.save_freq == 0 and accelerator.is_main_process:
-                    accelerator.save_state()
+            agents.accelerator.log({
+                'Hypervolume' : hypervolume(ref_point, pareto_archive.evaluations),
+                'Sparsity' : sparsity(pareto_archive.evaluations),
+                'Front': wandb.plot.scatter(
+                    wandb.Table(data = [[x[0], x[1]] for x in pareto_archive.evaluations], columns = ["F1", "F2"]),
+                    x='F1',
+                    y='F2',
+                    title='Current Front',
+                )
+            })
             evolutionary_generation += 1
         
 

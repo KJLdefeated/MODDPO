@@ -11,6 +11,8 @@ def get_config():
     config.seed = 42
     # top-level logging directory for checkpoint saving.
     config.logdir = "logs"
+    # log type
+    config.log_type = "wandb"
     # number of epochs to train for. each epoch is one round of sampling from the model followed by training on those
     # samples.
     config.num_epochs = 500
@@ -42,7 +44,7 @@ def get_config():
     ###### Sampling ######
     config.sample = sample = ml_collections.ConfigDict()
     # number of sampler inference steps.
-    sample.num_steps = 30
+    sample.num_steps = 50
     # eta parameter for the DDIM sampler. this controls the amount of noise injected into the sampling process, with 0.0
     # being fully deterministic and 1.0 being equivalent to the DDPM sampler.
     sample.eta = 1.0
@@ -110,8 +112,8 @@ def get_config():
     # population size for the multi-objective reinforcement learning algorithm.
     config.pop_size = 6
     # PGMORL hyperparameters
-    config.warmup_iterations = 10
-    config.evolutionary_iterations  = 4
+    config.warmup_iterations = 1
+    config.evolutionary_iterations  = 5
     config.num_weight_candidates  = 7
     config.num_performance_buffer  = 100
     config.performance_buffer_size  = 2

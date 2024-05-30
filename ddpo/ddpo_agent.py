@@ -103,14 +103,15 @@ class DDPOAgent:
 
         # set up diffusers-friendly checkpoint saving with Accelerate
         def save_model_hook(models, weights, output_dir):
-            assert len(models) == 1
-            if config.use_lora and isinstance(models[0], AttnProcsLayers):
-                self.pipeline.unet.save_attn_procs(output_dir)
-            elif not config.use_lora and isinstance(models[0], UNet2DConditionModel):
-                models[0].save_pretrained(os.path.join(output_dir, "unet"))
-            else:
-                raise ValueError(f"Unknown model type {type(models[0])}")
-            weights.pop()  # ensures that accelerate doesn't try to handle saving of the model
+            assert len(models) == self.pop_size
+            for i in range(self.pop_size):
+                if config.use_lora and isinstance(models[i], AttnProcsLayers):
+                    self.pipeline.unet.save_attn_procs(output_dir)
+                elif not config.use_lora and isinstance(models[i], UNet2DConditionModel):
+                    models[i].save_pretrained(os.path.join(output_dir, "unet"))
+                else:
+                    raise ValueError(f"Unknown model type {type(models[0])}")
+                weights.pop()  # ensures that accelerate doesn't try to handle saving of the model
 
         def load_model_hook(models, input_dir):
             assert len(models) == 1
@@ -191,6 +192,16 @@ class DDPOAgent:
         for lora_id, lora_name in self.unets[id].mapping.items():
             lora_attn_procs[lora_name] = self.unets[id].layers[lora_id]
         self.pipeline.unet.set_attn_processor(lora_attn_procs)
+        self.unets[id] = self.wrap_unet(self.pipeline.unet.attn_processors)
+        self.optimizers[id] = torch.optim.AdamW(
+            self.unets[id].parameters(),
+            lr=self.config.train.learning_rate,
+            betas=(self.config.train.adam_beta1, self.config.train.adam_beta2),
+            weight_decay=self.config.train.adam_weight_decay,
+            eps=self.config.train.adam_epsilon,)
+        self.unets[id], self.optimizers[id] = self.accelerator.prepare(self.unets[id], self.optimizers[id])
+        self.accelerator._models.pop(0)
+        self.accelerator._optimizers.pop(0)
         self.pipeline.unet.eval()
         self.samples = []
         self.prompts = []
@@ -290,8 +301,7 @@ class DDPOAgent:
                 pil.save(os.path.join(tmpdir, f"{i}.jpg"))
             self.accelerator.log(
                 {
-                    "Model ID": id,
-                    "images": [
+                    f"{id} images": [
                         wandb.Image(
                             os.path.join(tmpdir, f"{i}.jpg"),
                             caption=f"{prompt:.25} | {reward[0]:.2f} | {reward[1]:.2f}",
@@ -310,11 +320,9 @@ class DDPOAgent:
         # log rewards and images
         self.accelerator.log(
             {
-                "Model ID": id,
-                "weighted reward": rewards,
                 "epoch": epoch,
-                "weighted reward_mean": rewards.mean(),
-                "weighted reward_std": rewards.std(),
+                f"{id} weighted reward_mean": rewards.mean(),
+                f"{id} weighted reward_std": rewards.std(),
             },
             step=self.global_steps[id],
         )
@@ -452,18 +460,18 @@ class DDPOAgent:
                         # John Schulman says that (ratio - 1) - log(ratio) is a better
                         # estimator, but most existing code uses this so...
                         # http://joschu.net/blog/kl-approx.html
-                        info["approx_kl"].append(
+                        info[f"{id} approx_kl"].append(
                             0.5
                             * torch.mean((log_prob - sample["log_probs"][:, j]) ** 2)
                         )
-                        info["clipfrac"].append(
+                        info[f"{id} clipfrac"].append(
                             torch.mean(
                                 (
                                     torch.abs(ratio - 1.0) > self.config.train.clip_range
                                 ).float()
                             )
                         )
-                        info["loss"].append(loss)
+                        info[f"{id} loss"].append(loss)
 
                         # backward pass
                         self.accelerator.backward(loss)
