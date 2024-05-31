@@ -4,6 +4,7 @@ import os
 import datetime
 from concurrent import futures
 import time
+import torch
 from absl import app, flags
 from ml_collections import config_flags
 from accelerate import Accelerator
@@ -258,6 +259,15 @@ def main(_):
                     title='Current Front',
                 )
             })
+            # Save pareto front individuals
+            if evolutionary_generation % config.evol_save_freq == 0:
+                print(f"Saving {len(pareto_archive.evaluations)} pareto front individuals")
+                if len(pareto_archive.evaluations) != 0:
+                    save_path = os.path.join(config.logdir, config.run_name, "checkpoints", f"evol_{evolutionary_generation}")
+                    os.makedirs(save_path, exist_ok=True)
+                    np.save(save_path + "/evaluations.npy", np.array(pareto_archive.evaluations))
+                    for i, model in enumerate(pareto_archive.individuals):
+                        torch.save(model, save_path + f"/agent{i}.pt")
             evolutionary_generation += 1
         
 

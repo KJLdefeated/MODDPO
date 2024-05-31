@@ -106,7 +106,7 @@ class DDPOAgent:
             assert len(models) == self.pop_size
             for i in range(self.pop_size):
                 if config.use_lora and isinstance(models[i], AttnProcsLayers):
-                    self.pipeline.unet.save_attn_procs(output_dir)
+                    self.pipeline.unet.save_attn_procs(os.path.join(output_dir, f"agent{i}"))
                 elif not config.use_lora and isinstance(models[i], UNet2DConditionModel):
                     models[i].save_pretrained(os.path.join(output_dir, "unet"))
                 else:
@@ -172,6 +172,8 @@ class DDPOAgent:
             self.unets[i], self.optimizers[i] = self.accelerator.prepare(self.unets[i], self.optimizers[i])
 
         self.global_steps = [0 for _ in range(self.pop_size)]
+        self.info1 = None # for logging
+        self.info2 = None # for logging
 
     def wrap_unet(self, unet_attn_procs):
         # this is a hack to synchronize gradients properly. the module that registers the parameters we care about (in
@@ -205,6 +207,7 @@ class DDPOAgent:
         self.pipeline.unet.eval()
         self.samples = []
         self.prompts = []
+        self.info1 = defaultdict(list)
         for i in tqdm(
             range(self.config.sample.num_batches_per_epoch),
             desc=f"Epoch {epoch}: sampling",
@@ -299,6 +302,15 @@ class DDPOAgent:
                 )
                 pil = pil.resize((256, 256))
                 pil.save(os.path.join(tmpdir, f"{i}.jpg"))
+            # self.info1[f"{id} images"] = [
+            #             wandb.Image(
+            #                 os.path.join(tmpdir, f"{i}.jpg"),
+            #                 caption=f"{prompt:.25} | {reward[0]:.2f} | {reward[1]:.2f}",
+            #             )
+            #             for i, (prompt, reward) in enumerate(
+            #                 zip(prompts, m_rewards.reshape(-1, len(reward_fns)))
+            #             )  # only log rewards from process 0
+            #         ]
             self.accelerator.log(
                 {
                     f"{id} images": [
@@ -318,6 +330,8 @@ class DDPOAgent:
         rewards = self.accelerator.gather(self.samples["scaled_rewards"]).cpu().numpy()
 
         # log rewards and images
+        # self.info1[f"{id} weighted reward_mean"] = rewards.mean()
+        # self.info1[f"{id} weighted reward_std"] = rewards.std()
         self.accelerator.log(
             {
                 "epoch": epoch,
@@ -388,7 +402,7 @@ class DDPOAgent:
 
             # train
             self.pipeline.unet.train()
-            info = defaultdict(list)
+            self.info2 = defaultdict(list)
             for i, sample in tqdm(
                 list(enumerate(samples_batched)),
                 desc=f"Epoch {epoch}.{inner_epoch}: training",
@@ -460,18 +474,18 @@ class DDPOAgent:
                         # John Schulman says that (ratio - 1) - log(ratio) is a better
                         # estimator, but most existing code uses this so...
                         # http://joschu.net/blog/kl-approx.html
-                        info[f"{id} approx_kl"].append(
+                        self.info2[f"{id} approx_kl"].append(
                             0.5
                             * torch.mean((log_prob - sample["log_probs"][:, j]) ** 2)
                         )
-                        info[f"{id} clipfrac"].append(
+                        self.info2[f"{id} clipfrac"].append(
                             torch.mean(
                                 (
                                     torch.abs(ratio - 1.0) > self.config.train.clip_range
                                 ).float()
                             )
                         )
-                        info[f"{id} loss"].append(loss)
+                        self.info2[f"{id} loss"].append(loss)
 
                         # backward pass
                         self.accelerator.backward(loss)
@@ -488,12 +502,12 @@ class DDPOAgent:
                             i + 1
                         ) % self.config.train.gradient_accumulation_steps == 0
                         # log training-related stuff
-                        info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
-                        info = self.accelerator.reduce(info, reduction="mean")
-                        info.update({"epoch": epoch, "inner_epoch": inner_epoch})
-                        self.accelerator.log(info, step=self.global_steps[id])
+                        self.info2 = {k: torch.mean(torch.stack(v)) for k, v in self.info2.items()}
+                        self.info2 = self.accelerator.reduce(self.info2, reduction="mean")
+                        self.info2.update({"epoch": epoch, "inner_epoch": inner_epoch})
+                        self.accelerator.log(self.info2, step=self.global_steps[id])
                         self.global_steps[id] += 1
-                        info = defaultdict(list)
+                        self.info2 = defaultdict(list)
 
             # make sure we did an optimization step at the end of the inner epoch
             assert self.accelerator.sync_gradients

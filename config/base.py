@@ -15,9 +15,10 @@ def get_config():
     config.log_type = "wandb"
     # number of epochs to train for. each epoch is one round of sampling from the model followed by training on those
     # samples.
-    config.num_epochs = 500
+    config.num_epochs = 200
     # number of epochs between saving model checkpoints.
     config.save_freq = 10
+    config.evol_save_freq = 10
     # number of checkpoints to keep before overwriting old ones.
     config.num_checkpoint_limit = 5
     # mixed precision training. options are "fp16", "bf16", and "no". half-precision speeds up training significantly.
@@ -93,7 +94,7 @@ def get_config():
 
     ###### Prompt Function ######
     # prompt function to use. see `prompts.py` for available prompt functions.
-    config.prompt_fn = "simple_animals"
+    config.prompt_fn = "more_simple_animals"
     # kwargs to pass to the prompt function.
     config.prompt_fn_kwargs = {}
 
@@ -113,7 +114,7 @@ def get_config():
     config.pop_size = 6
     # PGMORL hyperparameters
     config.warmup_iterations = 1
-    config.evolutionary_iterations  = 5
+    config.evolutionary_iterations  = 3
     config.num_weight_candidates  = 7
     config.num_performance_buffer  = 100
     config.performance_buffer_size  = 2
