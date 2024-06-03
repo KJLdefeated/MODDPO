@@ -88,7 +88,7 @@ def main(_):
     set_seed(config.seed, device_specific=True)
 
     # setup pgmorl
-    ref_point = np.array([0.0, 0.0])
+    ref_point = np.array(config.ref_point)
     population = PerformanceBuffer(
         num_bins=config.num_performance_buffer,
         max_size=config.performance_buffer_size,

@@ -3,8 +3,3 @@ dog
 horse
 monkey
 rabbit
-zebra
-spider
-bird
-sheep
-deer

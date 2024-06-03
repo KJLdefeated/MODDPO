@@ -108,6 +108,7 @@ def get_config():
         "aesthetic_score",
         "jpeg_incompressibility",
     ]
+    config.ref_points = [0.0, 0.0]
 
     ###### MORL ######
     # population size for the multi-objective reinforcement learning algorithm.

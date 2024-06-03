@@ -506,7 +506,9 @@ class DDPOAgent:
                         self.info2 = self.accelerator.reduce(self.info2, reduction="mean")
                         self.info2.update({"epoch": epoch, "inner_epoch": inner_epoch})
                         self.accelerator.log(self.info2, step=self.global_steps[id])
-                        self.global_steps[id] += 1
+                        if id == self.pop_size - 1:
+                            for idx in range(self.pop_size):
+                                self.global_steps[idx]+=1
                         self.info2 = defaultdict(list)
 
             # make sure we did an optimization step at the end of the inner epoch
