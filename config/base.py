@@ -15,12 +15,12 @@ def get_config():
     config.log_type = "wandb"
     # number of epochs to train for. each epoch is one round of sampling from the model followed by training on those
     # samples.
-    config.num_epochs = 200
+    config.num_epochs = 500
     # number of epochs between saving model checkpoints.
     config.save_freq = 10
-    config.evol_save_freq = 10
+    config.evol_save_freq = 5
     # number of checkpoints to keep before overwriting old ones.
-    config.num_checkpoint_limit = 5
+    config.num_checkpoint_limit = 500
     # mixed precision training. options are "fp16", "bf16", and "no". half-precision speeds up training significantly.
     config.mixed_precision = "fp16"
     # allow tf32 on Ampere GPUs, which can speed up training.
@@ -55,7 +55,7 @@ def get_config():
     sample.batch_size = 2
     # number of batches to sample per epoch. the total number of samples per epoch is `num_batches_per_epoch *
     # batch_size * num_gpus`.
-    sample.num_batches_per_epoch = 2
+    sample.num_batches_per_epoch = 4
 
     ###### Training ######
     config.train = train = ml_collections.ConfigDict()
@@ -70,7 +70,7 @@ def get_config():
     # Adam beta2.
     train.adam_beta2 = 0.999
     # Adam weight decay.
-    train.adam_weight_decay = 1e-4
+    train.adam_weight_decay = 1e-6
     # Adam epsilon.
     train.adam_epsilon = 1e-8
     # number of gradient accumulation steps. the effective batch size is `batch_size * num_gpus *
@@ -94,7 +94,7 @@ def get_config():
 
     ###### Prompt Function ######
     # prompt function to use. see `prompts.py` for available prompt functions.
-    config.prompt_fn = "more_simple_animals"
+    config.prompt_fn = "simple_animals"
     # kwargs to pass to the prompt function.
     config.prompt_fn_kwargs = {}
 
@@ -106,16 +106,16 @@ def get_config():
     # Two objective funtions
     config.reward_fns = [
         "aesthetic_score",
-        "jpeg_incompressibility",
+        "jpeg_compressibility",
     ]
-    config.ref_points = [0.0, 0.0]
+    config.ref_point = [0.0, 0.0]
 
     ###### MORL ######
     # population size for the multi-objective reinforcement learning algorithm.
     config.pop_size = 6
     # PGMORL hyperparameters
-    config.warmup_iterations = 1
-    config.evolutionary_iterations  = 3
+    config.warmup_iterations = 10
+    config.evolutionary_iterations  = 5
     config.num_weight_candidates  = 7
     config.num_performance_buffer  = 100
     config.performance_buffer_size  = 2

@@ -24,8 +24,8 @@ import wandb
 
 tqdm = partial(tqdm.tqdm, dynamic_ncols=True)
 
-# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file("config", "config/base.py", "Training configuration.")
@@ -75,6 +75,8 @@ def main(_):
         # the total number of optimizer steps to accumulate across.
         gradient_accumulation_steps=config.train.gradient_accumulation_steps
         * num_train_timesteps,
+        device_placement=True
+
     )
     if accelerator.is_main_process:
         accelerator.init_trackers(
@@ -151,8 +153,11 @@ def main(_):
     # Init
     current_evaluations = [np.zeros(config.num_reward_fns) for _ in range(config.pop_size)]
     evolutionary_generation = 1
-
-    for epoch in range(first_epoch, config.num_epochs):
+    epoch = first_epoch
+    while epoch < config.num_epochs:
+        '''generate images'''
+        
+        '''train agents'''
         if epoch < config.warmup_iterations:
             logger.info(f"Running warmup iteration {epoch}")
             for agent_id in range(config.pop_size):
@@ -269,7 +274,7 @@ def main(_):
                     for i, model in enumerate(pareto_archive.individuals):
                         torch.save(model, save_path + f"/agent{i}.pt")
             evolutionary_generation += 1
-        
+        epoch += 1
 
 if __name__ == "__main__":
     app.run(main)
