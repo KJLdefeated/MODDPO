@@ -155,9 +155,6 @@ def main(_):
     evolutionary_generation = 1
     epoch = first_epoch
     while epoch < config.num_epochs:
-        '''generate images'''
-        
-        '''train agents'''
         if epoch < config.warmup_iterations:
             logger.info(f"Running warmup iteration {epoch}")
             for agent_id in range(config.pop_size):

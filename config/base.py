@@ -102,7 +102,7 @@ def get_config():
     # Number of objective functions
     config.num_reward_fns = 2
     # reward function to use. see `rewards.py` for available reward functions.
-    config.reward_fn = "aesthetic_score"
+    # config.reward_fn = "aesthetic_score"
     # Two objective funtions
     config.reward_fns = [
         "aesthetic_score",
