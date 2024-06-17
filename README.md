@@ -1,4 +1,6 @@
 # Training Diffusion Model with Multi-Objective Reinforcement Learning
+View our [Poster](ddpo/assets/img/DLP.png) for comprehensive information of our project.
+
 Our repository's code is referenced from [DDPO](https://github.com/kvablack/ddpo-pytorch) and [MORL_Baseline](https://github.com/LucasAlegre/morl-baselines).
 
 ## Motivation
