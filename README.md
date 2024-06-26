@@ -6,8 +6,8 @@ Our repository's code is referenced from [DDPO](https://github.com/kvablack/ddpo
 ## Motivation
 Human preference is complex. Usually, we have multi-objective rewards. For example 30% compressibility and 70% aesthetic quality. Furthermore, considering multi-objective rewards can somehow solve the over optimization problem ([Kevin Black 2024](https://arxiv.org/pdf/2305.13301)), since it gives constrain to each reward in the preference.
 
-<div style="text-align: center; margin: 10px;">
-    <img src="ddpo/assets/img/intro.png" style="width: 70vw;" alt="Image">
+<div align="center">
+  <img src="ddpo/assets/img/intro.png" width="75%">
 </div>
 
 
