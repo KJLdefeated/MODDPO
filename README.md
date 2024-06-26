@@ -41,13 +41,13 @@ Our method combines [DDPO](https://arxiv.org/pdf/2305.13301) and [PGMORL](https:
 ```math
 \nabla_{\theta} \mathcal{J}_{\text{DDRL}}(\omega_i) = \mathbb{E} \left[ \sum_{t=0}^{T} \frac{p_{\theta}(\mathbf{x}_{t-1} \mid \mathbf{x}_{t}, \mathbf{c})}{p_{\theta_{\text{old}}}(\mathbf{x}_{t-1} \mid \mathbf{x}_{t}, \mathbf{c})} \nabla_{\theta} \log p_{\theta}(\mathbf{x}_{t-1} \mid \mathbf{x}_{t}, \mathbf{c}) \, \omega_i^{\top} r(\mathbf{x}_{0}, \mathbf{c}) \right]
 ```
-3. Evolutionary stage 
+2. Evolutionary stage 
     - Fit improvement predition models for each policy from history data $\mathcal{R}$.
     - Sample $K$ candidate weight in the objective space. Given $K \times N$ candidate points, we want to select n of them that can maximize hyper volume and minimize sparsity.
     - We can iteratively update our population and keep iteract with environment with new task set $\mathcal{T}=\{(\pi_i,\omega_i)_{i=1}^n\}$.
 
 <div align="center" padding="5px">
-  <img src="ddpo/assets/img/method.png" width="75%">
+  <img src="ddpo/assets/img/method.png" width="50%">
 </div>
 
 ## Experiments
