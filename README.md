@@ -6,7 +6,7 @@ Our repository's code is referenced from [DDPO](https://github.com/kvablack/ddpo
 ## Motivation
 Human preference is complex. Usually, we have multi-objective rewards. For example 30% compressibility and 70% aesthetic quality. Furthermore, considering multi-objective rewards can somehow solve the over optimization problem ([Kevin Black 2024](https://arxiv.org/pdf/2305.13301)), since it gives constrain to each reward in the preference.
 
-<div align="center">
+<div align="center" padding="5px">
   <img src="ddpo/assets/img/intro.png" width="75%">
 </div>
 
@@ -29,7 +29,10 @@ python -m accelerate.commands.launch mo_train.py
 
 ## Method
 Our method combines [DDPO](https://arxiv.org/pdf/2305.13301) and [PGMORL](https://people.csail.mit.edu/jiex/papers/PGMORL/paper.pdf). The algorithm consists of warm-up stage and evolutionary stage. The goal of PGMORL is to approximate the Pareto front, which consists of policies that represent optimal trade-offs among the objectives.
-![image](ddpo/assets/img/pgmorl.png)
+
+<div align="center" padding="5px">
+  <img src="ddpo/assets/img/pgmorl.png" width="75%">
+</div>
 
 1. Warm-up stage
     - Generate task set $\mathcal{T}=\{(\pi_i,\omega_i)_{i=1}^n\}$ by initial policies and evenly distributed weight vectors. Here $\pi_i$ is LORA layers.
@@ -43,22 +46,36 @@ Our method combines [DDPO](https://arxiv.org/pdf/2305.13301) and [PGMORL](https:
     - Sample $K$ candidate weight in the objective space. Given $K \times N$ candidate points, we want to select n of them that can maximize hyper volume and minimize sparsity.
     - We can iteratively update our population and keep iteract with environment with new task set $\mathcal{T}=\{(\pi_i,\omega_i)_{i=1}^n\}$.
 
-![](ddpo/assets/img/method.png)
+<div align="center" padding="5px">
+  <img src="ddpo/assets/img/method.png" width="75%">
+</div>
 
 ## Experiments
 Here we experiment two reward combinations: **Aesthetic Score + Compressibility** & **Aesthetic Score + Incompressibility**
 ### Aesthetic Score + Compressibility
 #### Pareto Front:
-![](ddpo/assets/img/AESCOM.png)
+
+<div align="center" padding="5px">
+  <img src="ddpo/assets/img/AESCOM.png" width="75%">
+</div>
 #### HyperVolume:
-![](ddpo/assets/img/AESCOM_HV.png)
+
+<div align="center" padding="5px">
+  <img src="ddpo/assets/img/AESCOM_HV.png" width="75%">
+</div>
 
 
 ### Aesthetic Score + Incompressibility
 #### Pareto Front:
-![](ddpo/assets/img/AESIN.png)
+
+<div align="center" padding="5px">
+  <img src="ddpo/assets/img/AESIN.png" width="75%">
+</div>
 #### HyperVolume:
-![](ddpo/assets/img/AESIN_HV.png)
+
+<div align="center" padding="5px">
+  <img src="ddpo/assets/img/AESIN_HV.png" width="75%">
+</div>
 
 
 ## Limitations and Future Works
